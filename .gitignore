@@ -1,0 +1,46 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+.tools/
+
+# JavaScript / Next.js
+node_modules/
+.next/
+out/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Build and package output
+build/
+dist/
+*.egg-info/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.agents/
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local object-store data (Compose uses named volumes by default)
+.minio/
