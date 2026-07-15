@@ -1,1 +1,1 @@
-"""Database infrastructure package reserved for Phase 1."""
+"""SQLAlchemy database configuration and session lifecycle."""

@@ -1,16 +1,17 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help setup infra up down backend-check frontend-check check test
+.PHONY: help setup infra up down backend-check frontend-check integration check test
 
 help:
 	@echo "EvidenceGraph development commands"
 	@echo "  make setup          Install backend and frontend dependencies"
 	@echo "  make infra          Start PostgreSQL, Redis, and MinIO"
-	@echo "  make up             Build and start the complete Phase 0 stack"
+	@echo "  make up             Build and start the complete Phase 1 stack"
 	@echo "  make down           Stop the stack"
 	@echo "  make check          Run formatting checks, linting, types, and tests"
 	@echo "  make backend-check  Run all backend checks"
 	@echo "  make frontend-check Run all frontend checks"
+	@echo "  make integration    Run Phase 1 tests against the Compose stack"
 
 setup:
 	@test -f .env || cp .env.example .env
@@ -40,6 +41,10 @@ frontend-check:
 	cd frontend && npm run typecheck
 	cd frontend && npm run test
 	cd frontend && npm run build
+
+integration:
+	docker compose up --build -d postgres redis minio backend worker --wait
+	cd backend && RUN_INTEGRATION_TESTS=1 uv run pytest tests/integration
 
 check: backend-check frontend-check
 

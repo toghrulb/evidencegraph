@@ -45,8 +45,46 @@ jobs:
       - name: Test backend
         run: uv run pytest
 
-      - name: Validate migration configuration
-        run: uv run alembic upgrade head
+      - name: Generate migration SQL
+        run: uv run alembic upgrade head --sql > ${{ runner.temp }}/phase1-migration.sql
+
+  integration:
+    name: Phase 1 integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --locked
+
+      - name: Start Phase 1 services
+        run: >-
+          docker compose --env-file .env.example up --build -d
+          postgres redis minio backend worker
+          --wait --wait-timeout 180
+
+      - name: Run Phase 1 integration tests
+        working-directory: backend
+        env:
+          RUN_INTEGRATION_TESTS: "1"
+        run: uv run pytest tests/integration
+
+      - name: Show service logs after a failure
+        if: failure()
+        run: docker compose --env-file .env.example logs --no-color backend worker postgres redis minio
+
+      - name: Stop Phase 1 services
+        if: always()
+        run: docker compose --env-file .env.example down --volumes
 
   frontend:
     name: Frontend checks

@@ -1,1 +1,1 @@
-"""Document ingestion package reserved for a later implementation phase."""
+"""Asynchronous document-ingestion handoff primitives."""

@@ -1,8 +1,8 @@
 # EvidenceGraph
 
-EvidenceGraph is a research-intelligence platform designed to answer questions across technical papers with inspectable retrieval evidence and page-level citations.
+EvidenceGraph is a research-intelligence platform for answering questions across technical papers with inspectable evidence and page-level citations.
 
-This repository currently implements **Phase 0 only**: the monorepo foundation, local infrastructure, FastAPI health probes, a basic Next.js landing page, automated checks, and CI. Document ingestion, retrieval, generation, citations, and all other RAG behavior belong to later phases and are intentionally absent.
+The repository currently implements **Phase 0 and Phase 1**. Users can manage collections, upload validated PDFs, retain their original files in MinIO, inspect document metadata, reject duplicates within a collection, and poll the asynchronous ingestion status. Parsing, chunking, embeddings, retrieval, and answer generation are intentionally absent until later phases.
 
 ## Prerequisites
 
@@ -11,23 +11,23 @@ This repository currently implements **Phase 0 only**: the monorepo foundation, 
 - Node.js 24 and npm 10+ for native frontend development
 - GNU Make is optional; every Make target has an equivalent command below
 
-## Start the complete Phase 0 stack
+## Start the Phase 1 stack
 
-From the repository root, create a local environment file and build all services:
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-PowerShell equivalent:
+From the repository root, create a local environment file once:
 
 ```powershell
 Copy-Item .env.example .env
-docker compose up --build
 ```
 
-Then open:
+Build, migrate, and start the applications and infrastructure:
+
+```powershell
+docker compose up --build -d --wait --wait-timeout 300
+```
+
+The backend container applies `alembic upgrade head` before it starts. The worker then consumes Celery jobs from Redis.
+
+Open:
 
 - Frontend: <http://localhost:3000>
 - API documentation: <http://localhost:8000/docs>
@@ -35,47 +35,76 @@ Then open:
 - API readiness: <http://localhost:8000/health/ready>
 - MinIO console: <http://localhost:9001>
 
-Stop the stack with:
+Inspect or stop the stack with:
 
-```bash
+```powershell
+docker compose ps
+docker compose logs backend worker
 docker compose down
 ```
 
-The credentials in `.env.example` are deliberately local-only defaults. Change them before using any shared or remotely reachable environment. Do not commit `.env`.
+The credentials in `.env.example` are local-only defaults. Change them before exposing the stack on a shared network, and never commit `.env`.
 
-## Native development
+## Phase 1 API
 
-Start only the stateful infrastructure:
+The main endpoints are:
 
-```bash
+```text
+POST   /api/v1/collections
+GET    /api/v1/collections
+GET    /api/v1/collections/{collection_id}
+DELETE /api/v1/collections/{collection_id}
+
+POST   /api/v1/collections/{collection_id}/documents
+GET    /api/v1/collections/{collection_id}/documents
+GET    /api/v1/documents/{document_id}
+GET    /api/v1/documents/{document_id}/status
+GET    /api/v1/documents/{document_id}/file
+DELETE /api/v1/documents/{document_id}
+```
+
+Uploads use `multipart/form-data`: `file` is required, while `title`, repeated `authors`, and `publication_year` are optional. Only an `application/pdf` upload with a `.pdf` filename and `%PDF-` byte signature is accepted. `MAX_UPLOAD_MB` controls the streamed size limit.
+
+A new document starts as `uploaded`; the Celery worker idempotently moves it to `processing`. Phase 1 deliberately stops there. Only later parsing/chunking work may mark it `ready`, so this version never presents an unprocessed PDF as fully ingested.
+
+## Native backend development
+
+Start the stateful services:
+
+```powershell
 docker compose up -d postgres redis minio
 ```
 
-Run the backend in a separate terminal:
+Run migrations and the API:
 
-```bash
-cd backend
+```powershell
+Set-Location backend
 uv sync --locked
 uv run alembic upgrade head
 uv run fastapi dev app/main.py
 ```
 
+Run the worker in another terminal. On Windows, use Celery's solo pool:
+
+```powershell
+Set-Location backend
+uv run celery -A app.worker:celery_app worker --loglevel=INFO --pool=solo
+```
+
 Run the frontend in another terminal:
 
-```bash
-cd frontend
+```powershell
+Set-Location frontend
 npm ci
 npm run dev
 ```
 
-The current readiness endpoint reports completion of the FastAPI lifecycle only. Database, Redis, and object-storage dependency probes will be added with the features that consume those services.
+## Checks
 
-## Run all checks
+Backend formatting, linting, type checking, unit/API tests, and migration:
 
-Backend formatting, linting, type checking, and tests:
-
-```bash
-cd backend
+```powershell
+Set-Location backend
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy app
@@ -83,10 +112,10 @@ uv run pytest
 uv run alembic upgrade head
 ```
 
-Frontend formatting, linting, type checking, tests, and production build:
+Frontend checks remain unchanged in Phase 1:
 
-```bash
-cd frontend
+```powershell
+Set-Location frontend
 npm run format:check
 npm run lint
 npm run typecheck
@@ -95,26 +124,31 @@ npm run test
 npm run build
 ```
 
-With GNU Make, `make setup`, `make infra`, `make up`, `make check`, and `make down` provide root-level equivalents. The first browser installation may download Playwright's Chromium build.
-Developers who already have Google Chrome installed may instead set `PLAYWRIGHT_CHANNEL=chrome` when running the browser tests.
+Run the real Phase 1 integration test against the rebuilt stack:
 
-## Configuration
+```powershell
+docker compose up --build -d postgres redis minio backend worker --wait --wait-timeout 300
+Set-Location backend
+$env:RUN_INTEGRATION_TESTS = "1"
+uv run pytest tests/integration
+Remove-Item Env:RUN_INTEGRATION_TESTS
+```
 
-`.env.example` documents every required application variable and safe local defaults. `LLM_PROVIDER=none` and an empty `LLM_API_KEY` are intentional: no hosted model is required for Phase 0. Later ingestion and retrieval phases must continue to operate without a hosted LLM key.
+With GNU Make, `make setup`, `make infra`, `make up`, `make check`, `make integration`, and `make down` provide root-level equivalents.
 
 ## Repository layout
 
 ```text
-backend/            FastAPI application, Alembic scaffold, and tests
+backend/            FastAPI, SQLAlchemy/Alembic, Celery, storage adapters, and tests
 frontend/           Next.js application and browser tests
-workers/            Reserved for asynchronous workers in a later phase
+workers/            Reserved for worker-specific deployment assets
 evaluation_data/    Reserved for version-controlled evaluation datasets
 sample_papers/      Reserved for redistributable test papers
 scripts/            Reserved for project automation
 docs/               Architecture, API notes, plans, and decisions
-.github/workflows/  Continuous integration
+.github/workflows/  Static checks and full-stack Phase 1 integration CI
 ```
 
 See [the architecture overview](docs/architecture.md), [the implemented API](docs/api.md), [the implementation plan](docs/implementation-plan.md), and [ADR 0001](docs/decisions/0001-monorepo.md).
 
-`AGENTS.md` is the canonical implementation specification. `CLAUDE.md` points to it instead of duplicating policy text, preventing the two instruction entry points from drifting.
+`AGENTS.md` remains the canonical project specification. `CLAUDE.md` points to it so the two instruction entry points cannot drift.
