@@ -127,6 +127,7 @@ def process_document(
         logger.warning(
             "document_processing_failed",
             extra={**log_context, "error_code": exc.code},
+            exc_info=exc.__cause__ is not None,
         )
         return ProcessingOutcome.FAILED
     except Exception:

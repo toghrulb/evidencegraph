@@ -6,4 +6,6 @@ Fixed-token chunking normally keeps pages separate. It crosses into the next pag
 
 All tests generate small original PDFs programmatically. No paper corpus, hosted tokenizer, model download, external API, OCR engine, embedding model, or retrieval framework is used.
 
+Text normalization removes non-printable PDF extraction artifacts, including null bytes that PostgreSQL cannot store, while preserving tabs, line breaks, paragraph boundaries, and printable Unicode content.
+
 Known limitations are image-only documents, complex columns, tables, figures/equations, and heuristic headings. These are reported or documented rather than represented as solved.

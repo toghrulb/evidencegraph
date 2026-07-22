@@ -9,11 +9,13 @@ _PARAGRAPH_BREAK = re.compile(r"\n\s*\n+")
 _LIST_MARKER = re.compile(r"^(?:[-*\u2022\u25aa\u2014\u2023]|\d+[.)]|[A-Za-z][.)])\s+")
 _LOWERCASE_WORD_END = re.compile(r"[a-z]-$")
 _LOWERCASE_WORD_START = re.compile(r"^[a-z]")
+_UNSUPPORTED_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 def normalize_inline_whitespace(text: str) -> str:
-    """Collapse horizontal whitespace without removing line structure."""
-    return _HORIZONTAL_WHITESPACE.sub(" ", text.replace("\u00a0", " ")).strip()
+    """Remove extraction artifacts and collapse horizontal whitespace."""
+    cleaned = _UNSUPPORTED_CONTROL_CHARACTERS.sub("", text)
+    return _HORIZONTAL_WHITESPACE.sub(" ", cleaned.replace("\u00a0", " ")).strip()
 
 
 def normalize_paragraph(text: str) -> str:

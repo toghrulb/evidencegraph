@@ -113,6 +113,13 @@ def test_whitespace_normalization_repairs_safe_wraps_and_keeps_paragraphs() -> N
     assert "- first item\n- second item" in normalized
 
 
+def test_normalization_removes_database_unsafe_control_characters() -> None:
+    normalized = normalize_text("algo\x00rithm\n\n\x01Equation text\x7f")
+
+    assert normalized == "algorithm\n\nEquation text"
+    assert all(character not in normalized for character in ("\x00", "\x01", "\x7f"))
+
+
 def test_parser_preserves_one_based_pages_paragraphs_and_detected_section() -> None:
     document_id = uuid4()
     parsed = parse_pdf(
