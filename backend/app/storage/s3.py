@@ -175,6 +175,22 @@ class S3ObjectStorage:
             etag=etag,
         )
 
+    def upload_bytes(self, object_key: str, content: bytes, *, content_type: str) -> None:
+        """Upload an internal versioned artifact without exposing its key."""
+        _validate_object_key(object_key)
+        if not content_type:
+            raise ValueError("content_type is required")
+        try:
+            self._client.put_object(
+                Bucket=self._config.bucket_name,
+                Key=object_key,
+                Body=content,
+                ContentLength=len(content),
+                ContentType=content_type,
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise StorageError("Could not store the internal document artifact.") from exc
+
     def delete(self, object_key: str) -> None:
         """Delete an object idempotently."""
 

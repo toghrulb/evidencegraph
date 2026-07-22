@@ -43,5 +43,8 @@ class ObjectStorage(Protocol):
     def open(self, object_key: str) -> StoredObject:
         """Open an object for streamed reading."""
 
+    def upload_bytes(self, object_key: str, content: bytes, *, content_type: str) -> None:
+        """Write a bounded generated internal artifact."""
+
     def delete(self, object_key: str) -> None:
         """Delete an object; deleting a missing key is successful."""

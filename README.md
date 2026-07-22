@@ -2,7 +2,7 @@
 
 EvidenceGraph is a research-intelligence platform for answering questions across technical papers with inspectable evidence and page-level citations.
 
-The repository currently implements **Phase 0 and Phase 1**. Users can manage collections, upload validated PDFs, retain their original files in MinIO, inspect document metadata, reject duplicates within a collection, and poll the asynchronous ingestion status. Parsing, chunking, embeddings, retrieval, and answer generation are intentionally absent until later phases.
+The repository currently implements **Phases 0–2**. Users can manage collections, upload validated PDFs, retain originals in MinIO, and asynchronously produce page-aware, section-aware chunks. Embeddings, retrieval, answer generation, and the research workspace remain intentionally absent until later phases.
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ The repository currently implements **Phase 0 and Phase 1**. Users can manage co
 - Node.js 24 and npm 10+ for native frontend development
 - GNU Make is optional; every Make target has an equivalent command below
 
-## Start the Phase 1 stack
+## Start the Phase 2 stack
 
 From the repository root, create a local environment file once:
 
@@ -45,7 +45,7 @@ docker compose down
 
 The credentials in `.env.example` are local-only defaults. Change them before exposing the stack on a shared network, and never commit `.env`.
 
-## Phase 1 API
+## Phase 2 processing and API
 
 The main endpoints are:
 
@@ -60,12 +60,15 @@ GET    /api/v1/collections/{collection_id}/documents
 GET    /api/v1/documents/{document_id}
 GET    /api/v1/documents/{document_id}/status
 GET    /api/v1/documents/{document_id}/file
+GET    /api/v1/documents/{document_id}/chunks
 DELETE /api/v1/documents/{document_id}
 ```
 
-Uploads use `multipart/form-data`: `file` is required, while `title`, repeated `authors`, and `publication_year` are optional. Only an `application/pdf` upload with a `.pdf` filename and `%PDF-` byte signature is accepted. `MAX_UPLOAD_MB` controls the streamed size limit.
+Uploads use `multipart/form-data`: `file` is required, while `title`, repeated `authors`, `publication_year`, and `chunking_strategy` (`fixed_token` or `section_aware`) are optional. Only an `application/pdf` upload with a `.pdf` filename and `%PDF-` byte signature is accepted. The worker independently checks the stored signature, configured byte/page limits, encryption, and readability.
 
-A new document starts as `uploaded`; the Celery worker idempotently moves it to `processing`. Phase 1 deliberately stops there. Only later parsing/chunking work may mark it `ready`, so this version never presents an unprocessed PDF as fully ingested.
+A new document progresses asynchronously through `uploaded → processing → parsing → chunking → ready`. Public `status` keeps the Phase 1 values while `processing_stage` exposes detailed progress. Controlled failures become `failed` with a safe message and technical code. Parsed page/block/paragraph metadata is stored as versioned JSON in MinIO; complete chunk sets are replaced atomically in PostgreSQL so retries do not duplicate rows.
+
+The default `unicode_lexical_v1` tokenizer is deterministic and local: no model is downloaded during processing or tests. Chunk limits and behavior are configured through the variables documented in [docs/environment.md](docs/environment.md).
 
 ## Native backend development
 
@@ -124,7 +127,7 @@ npm run test
 npm run build
 ```
 
-Run the real Phase 1 integration test against the rebuilt stack:
+Run the real Phase 2 integration test against the rebuilt stack:
 
 ```powershell
 docker compose up --build -d postgres redis minio backend worker --wait --wait-timeout 300
@@ -146,9 +149,9 @@ evaluation_data/    Reserved for version-controlled evaluation datasets
 sample_papers/      Reserved for redistributable test papers
 scripts/            Reserved for project automation
 docs/               Architecture, API notes, plans, and decisions
-.github/workflows/  Static checks and full-stack Phase 1 integration CI
+.github/workflows/  Static checks and full-stack Phase 2 integration CI
 ```
 
-See [the architecture overview](docs/architecture.md), [the implemented API](docs/api.md), [the implementation plan](docs/implementation-plan.md), and [ADR 0001](docs/decisions/0001-monorepo.md).
+See [the architecture overview](docs/architecture.md), [the implemented API](docs/api.md), [the environment reference](docs/environment.md), [the Phase 2 notes](docs/phase-2.md), [the implementation plan](docs/implementation-plan.md), and [ADR 0002](docs/decisions/0002-phase2-parsing-chunking.md).
 
 `AGENTS.md` remains the canonical project specification. `CLAUDE.md` points to it so the two instruction entry points cannot drift.

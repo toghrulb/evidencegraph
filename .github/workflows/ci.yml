@@ -46,10 +46,10 @@ jobs:
         run: uv run pytest
 
       - name: Generate migration SQL
-        run: uv run alembic upgrade head --sql > ${{ runner.temp }}/phase1-migration.sql
+        run: uv run alembic upgrade head --sql > ${{ runner.temp }}/phase2-migration.sql
 
   integration:
-    name: Phase 1 integration tests
+    name: Phase 2 integration tests
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -66,13 +66,13 @@ jobs:
         working-directory: backend
         run: uv sync --locked
 
-      - name: Start Phase 1 services
+      - name: Start Phase 2 services
         run: >-
           docker compose --env-file .env.example up --build -d
           postgres redis minio backend worker
           --wait --wait-timeout 180
 
-      - name: Run Phase 1 integration tests
+      - name: Run Phase 2 integration tests
         working-directory: backend
         env:
           RUN_INTEGRATION_TESTS: "1"
@@ -82,7 +82,7 @@ jobs:
         if: failure()
         run: docker compose --env-file .env.example logs --no-color backend worker postgres redis minio
 
-      - name: Stop Phase 1 services
+      - name: Stop Phase 2 services
         if: always()
         run: docker compose --env-file .env.example down --volumes
 

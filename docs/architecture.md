@@ -1,55 +1,59 @@
 # Architecture
 
-## Phase 1 system
+## Phase 2 system
 
 ```text
-Browser :3000
-    |
-    v
-Next.js frontend
-
-FastAPI backend :8000
-    |              | enqueue       | original PDFs
-    v              v               v
-PostgreSQL       Redis           MinIO
-metadata          |              :9000
-:5432             v
-             Celery worker
-             uploaded -> processing
+FastAPI upload API
+    | metadata                 | generated object key
+    v                          v
+PostgreSQL                   MinIO (original PDF)
+    |                          ^
+    | enqueue                  | load + parsed-schema-1.json
+    v                          |
+Redis -> Celery worker -> validate -> parse pages -> detect sections -> chunk
+                              |
+                              v
+                      atomic chunk replacement
+                              |
+                              v
+                     PostgreSQL (chunks + status)
 ```
 
-Docker Compose is the local orchestration boundary. It provisions pinned PostgreSQL/pgvector, Redis, and MinIO images and builds the frontend, API, and worker containers. The backend applies the Alembic migration before serving traffic. Named volumes retain local service data.
+Docker Compose provisions PostgreSQL/pgvector, Redis, MinIO, the FastAPI service, and the Celery worker. The API stores a validated original PDF and queues its generated document ID. The worker independently reloads and revalidates the stored bytes before extraction.
 
 ## Component boundaries
 
-- `backend/app/models` owns SQLAlchemy collection/document metadata. The first migration creates only those Phase 1 tables.
-- `backend/app/documents` validates uploads without reading an entire PDF into memory. It calculates SHA-256 while copying into a spooled temporary file.
-- `backend/app/storage` is a narrow provider-neutral contract with a MinIO-compatible S3 implementation. HTTP routes never construct user-controlled storage paths.
-- `backend/app/ingestion` owns queue dispatch and the idempotent status claim. Phase 1 does not contain extraction or other processing logic.
-- `backend/app/api` exposes versioned collection/document contracts and maps controlled validation or dependency failures to HTTP responses.
-- PostgreSQL enforces document status values, referential integrity, globally unique storage keys, and collection-scoped checksum uniqueness.
-- The Next.js application remains the Phase 0 landing page. The upload and research workspace UI belongs to Phase 6 in the project specification.
+- `app/parsing/loader.py` verifies object existence, byte limits, and the stored `%PDF-` signature.
+- `app/parsing/parser.py` uses PyMuPDF dictionary extraction to retain ordered layout blocks, font signals, page dimensions, and one-based page numbers.
+- `app/parsing/normalization.py` conservatively repairs whitespace and obvious lowercase hyphen wraps while preserving paragraph and list boundaries.
+- `app/parsing/sections.py` uses deterministic research-heading, numbering, font, bold, title-case, and spacing signals. It returns no heading when evidence is insufficient.
+- `app/parsing/schemas.py` owns strict, immutable, versioned internal models. These models are independent from HTTP schemas.
+- `app/chunking/tokenizer.py` owns the cached local tokenizer abstraction. The default `unicode_lexical_v1` counts Unicode words, contractions/hyphenated words, and punctuation without model downloads or network calls.
+- `app/chunking/fixed.py` and `section_aware.py` define the two source-order grouping rules; `windowing.py` owns token windows and overlap.
+- `app/chunking/persistence.py` atomically replaces a complete chunk set and finalizes document metadata.
+- `app/ingestion/orchestrator.py` owns observable stage transitions and processing-attempt guards. The Celery task remains a thin adapter.
 
-## Upload transaction boundary
+## Processing lifecycle
+
+The compatible public `status` remains `uploaded`, `processing`, `ready`, or `failed`. The new `processing_stage` provides finer progress:
 
 ```text
-validate + hash PDF
-        |
-check collection/checksum
-        |
-upload generated key to MinIO
-        |
-commit document metadata
-        |
-enqueue Celery job
-        |
-worker claims uploaded -> processing
+uploaded -> processing -> parsing -> chunking -> ready
+                                      \-------> failed
 ```
 
-Uploads and collection deletion take a PostgreSQL row lock on the parent collection so a concurrent upload cannot commit an untracked object while that collection is being removed. If the metadata insert loses a duplicate race, the just-uploaded unique object is removed. If queue publication fails after the metadata commit, the row is retained and marked `failed`, making the failure observable. Object storage and PostgreSQL cannot share a distributed transaction; delete operations therefore remove stored objects before committing metadata deletion and report storage failures instead of silently orphaning known objects.
+Every attempt receives a UUID. Stage writes and the final chunk transaction require that UUID to remain current, so an older worker cannot overwrite a newer retry. A successful retry deletes old chunks, inserts the complete new set, updates counts and versions, and marks the document ready in one database commit. A failed database commit rolls back the deletion and leaves the previous valid chunks intact. MinIO and PostgreSQL do not share a distributed transaction; the versioned parsed artifact may therefore already have been replaced if the database commit fails.
 
-## Deliberate Phase 1 limit
+## Parsed intermediate and citation mapping
 
-`processing` means the asynchronous handoff was accepted. It does not mean extraction has completed. Page extraction, chunking, embeddings, retrieval, and generation are absent, and no Phase 1 code marks a document `ready`.
+The complete `ParsedDocument` is serialized to a deterministic MinIO key ending in `parsed-schema-1.json`. PostgreSQL stores the generated key internally, but no API exposes it. This keeps page/block detail out of relational tables while retaining a replayable, testable artifact. Citation-facing chunks stay relational and include page range, section, source order, counts, strategy, configuration version, and parser/tokenizer metadata.
 
-The monorepo boundary is recorded in [ADR 0001](decisions/0001-monorepo.md).
+## Known limitations
+
+- Image-only/scanned PDFs produce a controlled `no_extractable_text` failure; Phase 2 has no OCR.
+- PyMuPDF block ordering can be imperfect for complex multi-column layouts.
+- Tables, figures, and equations are extracted only as ordinary available text; structure and visual meaning are not interpreted.
+- Section detection is heuristic and may miss or misclassify unusual headings.
+- The local lexical token count is deterministic but does not claim parity with a future embedding or LLM tokenizer.
+
+See [ADR 0001](decisions/0001-monorepo.md) and [ADR 0002](decisions/0002-phase2-parsing-chunking.md).

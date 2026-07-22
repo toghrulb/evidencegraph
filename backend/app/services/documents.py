@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO, cast
 from uuid import UUID, uuid4
@@ -11,8 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.chunking.types import ChunkingStrategy
 from app.documents.validation import ValidatedPdf
 from app.ingestion.dispatcher import IngestionDispatcher
+from app.ingestion.types import ProcessingStage
 from app.models.collection import Collection
 from app.models.document import Document, DocumentStatus
 from app.storage.base import ObjectStorage, StoredObject
@@ -62,6 +65,7 @@ def create_document(
     title: str | None,
     authors: list[str] | None,
     publication_year: int | None,
+    chunking_strategy: ChunkingStrategy,
 ) -> Document:
     """Store a validated PDF, persist metadata, and enqueue ingestion."""
     _require_collection(session, collection_id, lock_for_update=True)
@@ -88,6 +92,7 @@ def create_document(
         storage_key=storage_key,
         checksum=upload.checksum,
         status=DocumentStatus.UPLOADED,
+        chunking_strategy=chunking_strategy,
     )
 
     storage.ensure_bucket()
@@ -126,7 +131,10 @@ def create_document(
     except Exception:
         logger.exception("ingestion_dispatch_failed document_id=%s", document.id)
         document.status = DocumentStatus.FAILED
+        document.processing_stage = ProcessingStage.FAILED
         document.error_message = "The ingestion job could not be queued."
+        document.error_code = "ingestion_dispatch_failed"
+        document.processing_completed_at = datetime.now(tz=UTC)
         session.commit()
 
     session.refresh(document)
@@ -143,6 +151,8 @@ def delete_document(session: Session, storage: ObjectStorage, document_id: UUID)
     """Delete both the stored PDF and its metadata."""
     document = get_document(session, document_id)
     storage.delete(document.storage_key)
+    if document.parsed_storage_key is not None:
+        storage.delete(document.parsed_storage_key)
     session.delete(document)
     session.commit()
 

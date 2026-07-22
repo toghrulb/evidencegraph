@@ -1,1 +1,1 @@
-"""Text chunking package reserved for a later implementation phase."""
+"""Project-owned deterministic chunking strategies."""

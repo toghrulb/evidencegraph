@@ -61,6 +61,12 @@ class FakeStorage:
             content_type="application/pdf",
         )
 
+    def upload_bytes(self, object_key: str, content: bytes, *, content_type: str) -> None:
+        del content_type
+        if self.fail_upload:
+            raise StorageError("upload unavailable")
+        self.objects[object_key] = content
+
     def delete(self, object_key: str) -> None:
         if self.fail_delete:
             raise StorageError("delete unavailable")

@@ -8,7 +8,7 @@ from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.api.dependencies import (
@@ -17,13 +17,16 @@ from app.api.dependencies import (
     SettingsDependency,
     StorageDependency,
 )
+from app.chunking.types import ChunkingStrategy
 from app.documents.validation import (
     InvalidPdfMediaTypeError,
     PdfTooLargeError,
     PdfValidationError,
     validate_pdf_upload,
 )
+from app.schemas.chunk import ChunkPage, ChunkRead
 from app.schemas.document import DocumentRead, DocumentStatusRead
+from app.services.chunks import list_document_chunks
 from app.services.documents import (
     DocumentCollectionNotFoundError,
     DocumentNotFoundError,
@@ -57,6 +60,7 @@ async def upload_document_endpoint(
         int | None,
         Form(ge=1000, le=datetime.now(tz=UTC).year + 1),
     ] = None,
+    chunking_strategy: Annotated[ChunkingStrategy | None, Form()] = None,
 ) -> DocumentRead:
     """Validate and store a PDF, then enqueue its ingestion status transition."""
     try:
@@ -88,6 +92,7 @@ async def upload_document_endpoint(
                 title=title,
                 authors=authors,
                 publication_year=publication_year,
+                chunking_strategy=chunking_strategy or settings.default_chunking_strategy,
             )
         except DocumentCollectionNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -141,6 +146,31 @@ def get_document_status_endpoint(
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return DocumentStatusRead.model_validate(document)
+
+
+@router.get("/api/v1/documents/{document_id}/chunks", response_model=ChunkPage)
+def list_document_chunks_endpoint(
+    document_id: UUID,
+    session: DatabaseSession,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> ChunkPage:
+    """List citation-ready chunks in deterministic source order."""
+    try:
+        chunks, total = list_document_chunks(
+            session,
+            document_id,
+            offset=offset,
+            limit=limit,
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return ChunkPage(
+        items=[ChunkRead.model_validate(chunk) for chunk in chunks],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get("/api/v1/documents/{document_id}/file")

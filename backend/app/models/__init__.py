@@ -1,6 +1,7 @@
 """SQLAlchemy persistence models."""
 
+from app.models.chunk import Chunk
 from app.models.collection import Collection
 from app.models.document import Document, DocumentStatus
 
-__all__ = ["Collection", "Document", "DocumentStatus"]
+__all__ = ["Chunk", "Collection", "Document", "DocumentStatus"]

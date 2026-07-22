@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.chunking.types import ChunkingStrategy
+from app.ingestion.types import ProcessingStage
 from app.models.document import DocumentStatus
 
 
@@ -22,7 +24,13 @@ class DocumentRead(BaseModel):
     checksum: str
     status: DocumentStatus
     page_count: int | None
+    chunk_count: int
+    chunking_strategy: ChunkingStrategy
+    processing_stage: ProcessingStage
+    processing_started_at: datetime | None
+    processing_completed_at: datetime | None
     error_message: str | None
+    error_code: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -34,5 +42,12 @@ class DocumentStatusRead(BaseModel):
 
     id: UUID
     status: DocumentStatus
+    processing_stage: ProcessingStage
+    page_count: int | None
+    chunk_count: int
+    chunking_strategy: ChunkingStrategy
     error_message: str | None
+    error_code: str | None
+    processing_started_at: datetime | None
+    processing_completed_at: datetime | None
     updated_at: datetime

@@ -6,12 +6,12 @@ help:
 	@echo "EvidenceGraph development commands"
 	@echo "  make setup          Install backend and frontend dependencies"
 	@echo "  make infra          Start PostgreSQL, Redis, and MinIO"
-	@echo "  make up             Build and start the complete Phase 1 stack"
+	@echo "  make up             Build and start the complete Phase 2 stack"
 	@echo "  make down           Stop the stack"
 	@echo "  make check          Run formatting checks, linting, types, and tests"
 	@echo "  make backend-check  Run all backend checks"
 	@echo "  make frontend-check Run all frontend checks"
-	@echo "  make integration    Run Phase 1 tests against the Compose stack"
+	@echo "  make integration    Run Phase 2 tests against the Compose stack"
 
 setup:
 	@test -f .env || cp .env.example .env

@@ -51,11 +51,15 @@ def delete_collection(
     )
     if collection is None:
         raise CollectionNotFoundError(f"Collection {collection_id} does not exist.")
-    keys = session.scalars(
-        select(Document.storage_key).where(Document.collection_id == collection_id)
+    keys = session.execute(
+        select(Document.storage_key, Document.parsed_storage_key).where(
+            Document.collection_id == collection_id
+        )
     ).all()
-    for key in keys:
-        storage.delete(key)
+    for original_key, parsed_key in keys:
+        storage.delete(original_key)
+        if parsed_key is not None:
+            storage.delete(parsed_key)
 
     session.delete(collection)
     session.commit()
